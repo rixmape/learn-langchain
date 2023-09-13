@@ -14,10 +14,12 @@ Psuedocode:
 9. Repeat steps 1-8 until the user quits.
 """
 
+import arxiv
 import streamlit as st
+
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.chains import ConversationChain
-from langchain.chat_models import ChatOpenAI
+from langchain.chains import LLMChain
+from langchain.llms import OpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.memory.chat_message_histories import StreamlitChatMessageHistory
 from langchain.prompts import PromptTemplate
@@ -40,9 +42,6 @@ st.title("📖 arXiv Assistant")
 msgs = StreamlitChatMessageHistory(key="langchain_messages")
 memory = ConversationBufferMemory(chat_memory=msgs)
 
-# Set up expander to view the messages stored in memory
-view_messages = st.expander("View the message contents in session state")
-
 # Add a default message if there are no messages in memory
 if len(msgs.messages) == 0:
     msgs.add_ai_message("How can I help you?")
@@ -51,15 +50,41 @@ if len(msgs.messages) == 0:
 for msg in msgs.messages:
     st.chat_message(msg.type).write(msg.content)
 
-template = """You are a research professor at Harvard University. Your goal is to answer questions related to physics, mathematics, computer science, and other scientific disciplines. Always shorten your answers.
+expansion_template = """You are a language model trained to perform query expansion. Given a query, you are expected to add synonyms. Here are some examples:
 
-{history}
-Student: {input}
-Professor: """
+Query: What is Shor's algorithm?
+Expanded query: Shor's algorithm OR factorization OR Peter Shor OR quantum computing OR quantum algorithm
 
-prompt = PromptTemplate(
-    input_variables=["history", "input"],
-    template=template,
+Query: What is the Higgs boson?
+Expanded query: Higgs boson OR Higgs particle OR Standard Model OR particle physics OR CERN OR Large Hadron Collider OR elementary particle
+
+Query: Riemann hypothesis
+Expanded query: Riemann hypothesis OR Riemann zeta function OR prime number theorem OR analytic continuation OR complex analysis OR Bernhard Riemann OR number theory
+
+Query: What is the P versus NP problem?
+Expanded query: P versus NP problem OR computational complexity theory OR polynomial time OR NP-hard OR NP-complete OR NP-intermediate OR Boolean satisfiability problem
+
+Query: Navier-Stokes equation
+Expanded query: Navier-Stokes equation OR fluid dynamics OR partial differential equation OR fluid mechanics OR turbulence OR incompressible flow OR viscous flow
+
+Query: {query}
+Expanded query:"""
+expansion_prompt_template = PromptTemplate(
+    input_variables=["query"],
+    template=expansion_template,
+)
+
+answer_template = """You are a research professor at Harvard University. Please use these abstracts to provide a response to the user's query. If the information is not in the abstracts, you may use your own knowledge but you need to explicitly state that you are doing so.
+
+Abstracts:
+
+{abstracts}
+
+Query: {expanded_query}
+Answer:"""
+answer_prompt_template = PromptTemplate(
+    input_variables=["abstracts", "expanded_query"],
+    template=answer_template,
 )
 
 # If user inputs a new prompt, generate and draw a new response
@@ -69,21 +94,31 @@ if query := st.chat_input():
 
     with st.chat_message("assistant"):
         sthandler = StreamHandler(st.empty())
-        llm = ChatOpenAI(temperature=0, streaming=True, callbacks=[sthandler])
-        print(memory.load_memory_variables({}))
-        llm_chain = ConversationChain(llm=llm, memory=memory, prompt=prompt)
-        response = llm_chain.predict(input=query)
-        sthandler.container.markdown(response)
 
-# Draw the messages at the end, so newly generated ones show up immediately
-with view_messages:
-    """
-    Memory initialized with:
-    ```python
-    msgs = StreamlitChatMessageHistory(key="langchain_messages")
-    memory = ConversationBufferMemory(chat_memory=msgs)
-    ```
+        # TODO: Using an agent can be more efficient than using a chain.
+        expansion_chain = LLMChain(
+            llm=OpenAI(temperature=0),
+            prompt=expansion_prompt_template,
+            output_key="expanded_query",
+        )
 
-    Contents of `st.session_state.langchain_messages`:
-    """
-    view_messages.json(st.session_state.langchain_messages)
+        expanded_query = expansion_chain.predict(query=query)
+
+        papers = arxiv.Search(expanded_query, max_results=4)
+
+        # TODO: Consider the token limit of the LLM. Concatenate the abstracts until the token limit is reached.
+        abstracts = "\n\n".join([paper.summary for paper in papers.results()])
+
+        answer_chain = LLMChain(
+            llm=OpenAI(temperature=0, streaming=True, callbacks=[sthandler]),
+            prompt=answer_prompt_template,
+            output_key="answer",
+        )
+
+        answer = answer_chain.predict(
+            abstracts=abstracts,
+            expanded_query=expanded_query,
+        )
+
+        sthandler.container.empty()
+        st.write(answer)
