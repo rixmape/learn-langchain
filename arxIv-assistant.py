@@ -28,13 +28,13 @@ class StreamHandler(BaseCallbackHandler):
         self.container = container
         self.text = initial_text
 
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
+    def on_llm_new_token(self, token: str, **kwargs):
         self.text += token
-        self.container.markdown(self.text)
+        self.container.markdown(self.text + "▮")
 
 
-st.set_page_config(page_title="StreamlitChatMessageHistory", page_icon="📖")
-st.title("📖 StreamlitChatMessageHistory")
+st.set_page_config(page_title="arXiv Assistant", page_icon="📖")
+st.title("📖 arXiv Assistant")
 
 # Set up memory
 msgs = StreamlitChatMessageHistory(key="langchain_messages")
@@ -51,31 +51,29 @@ if len(msgs.messages) == 0:
 for msg in msgs.messages:
     st.chat_message(msg.type).write(msg.content)
 
-# Set up the LLMChain, passing in memory
-template = """You are an AI chatbot having a conversation with a human.
+template = """You are a research professor at Harvard University. Your goal is to answer questions related to physics, mathematics, computer science, and other scientific disciplines. Always shorten your answers.
 
 {history}
-Human: {input}
-AI: """
+Student: {input}
+Professor: """
 
-prompt = PromptTemplate(input_variables=["history", "input"], template=template)
+prompt = PromptTemplate(
+    input_variables=["history", "input"],
+    template=template,
+)
 
 # If user inputs a new prompt, generate and draw a new response
 # New messages are added to memory automatically
 if query := st.chat_input():
-    st.chat_message("human").write(query)
+    st.chat_message("user").write(query)
 
     with st.chat_message("assistant"):
-        stream_handler = StreamHandler(st.empty())
-
-        llm = ChatOpenAI(
-            temperature=0,
-            streaming=True,
-            callbacks=[stream_handler],
-        )
-
+        sthandler = StreamHandler(st.empty())
+        llm = ChatOpenAI(temperature=0, streaming=True, callbacks=[sthandler])
+        print(memory.load_memory_variables({}))
         llm_chain = ConversationChain(llm=llm, memory=memory, prompt=prompt)
         response = llm_chain.predict(input=query)
+        sthandler.container.markdown(response)
 
 # Draw the messages at the end, so newly generated ones show up immediately
 with view_messages:
