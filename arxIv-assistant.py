@@ -15,11 +15,23 @@ Psuedocode:
 """
 
 import streamlit as st
+from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chains import ConversationChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.memory.chat_message_histories import StreamlitChatMessageHistory
 from langchain.prompts import PromptTemplate
+
+
+class StreamHandler(BaseCallbackHandler):
+    def __init__(self, container, initial_text=""):
+        self.container = container
+        self.text = initial_text
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self.text += token
+        self.container.markdown(self.text)
+
 
 st.set_page_config(page_title="StreamlitChatMessageHistory", page_icon="📖")
 st.title("📖 StreamlitChatMessageHistory")
@@ -46,20 +58,24 @@ template = """You are an AI chatbot having a conversation with a human.
 Human: {input}
 AI: """
 
-prompt = PromptTemplate(
-    input_variables=["history", "input"],
-    template=template,
-)
-
-llm = ChatOpenAI(temperature=0)
-conversation = ConversationChain(llm=llm, memory=memory, prompt=prompt)
+prompt = PromptTemplate(input_variables=["history", "input"], template=template)
 
 # If user inputs a new prompt, generate and draw a new response
 # New messages are added to memory automatically
 if query := st.chat_input():
     st.chat_message("human").write(query)
-    response = conversation.predict(input=query)
-    st.chat_message("ai").write(response)
+
+    with st.chat_message("assistant"):
+        stream_handler = StreamHandler(st.empty())
+
+        llm = ChatOpenAI(
+            temperature=0,
+            streaming=True,
+            callbacks=[stream_handler],
+        )
+
+        llm_chain = ConversationChain(llm=llm, memory=memory, prompt=prompt)
+        response = llm_chain.predict(input=query)
 
 # Draw the messages at the end, so newly generated ones show up immediately
 with view_messages:
