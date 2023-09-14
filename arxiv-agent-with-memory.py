@@ -5,6 +5,10 @@ from langchain.callbacks import StreamlitCallbackHandler
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.memory.chat_message_histories import StreamlitChatMessageHistory
+from langchain.utilities import WikipediaAPIWrapper
+from langchain.utilities import PythonREPL
+from langchain.tools import DuckDuckGoSearchRun
+from langchain.agents import Tool
 
 st.set_page_config(page_title="arXiv Assistant", page_icon="📖")
 st.title("📖 arXiv Assistant")
@@ -25,10 +29,35 @@ if len(msgs.messages) == 0:
 # Render current messages from StreamlitChatMessageHistory
 view_messages = st.expander("View the message contents in session state")
 
-# Set up the ComversationalAgent, passing in memory
+# Create tools for the agent
+wikipedia = WikipediaAPIWrapper()
+python_repl = PythonREPL()
+search = DuckDuckGoSearchRun()
+
+tools = [
+    Tool(
+        name="Wikipedia Search",
+        func=wikipedia.run,
+        description="Useful for when you need to look up a definition or a short description of something. Be specific with your input.",
+    ),
+    Tool(
+        name="Python REPL",
+        func=python_repl.run,
+        description="useful for when you need to use Python to answer a question. You should input Python code.",
+    ),
+    Tool(
+        name="DuckDuckGo Search",
+        func=search.run,
+        description="Useful for when you need to do a search on the internet to find information that another tool can't find. Be specific with your input.",
+    ),
+]
+
+tools.extend(load_tools(["arxiv"]))
+
+# Set up the ComversationalAgent, passing in memory and tools
 agent_executor = initialize_agent(
     llm=ChatOpenAI(temperature=0, model="gpt-3.5-turbo-16k"),
-    tools=load_tools(["arxiv"]),
+    tools=tools,
     agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
     memory=memory,
     return_intermediate_steps=True,
