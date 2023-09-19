@@ -94,6 +94,7 @@ pydantic_core==2.6.3
 pydeck==0.8.0
 Pygments==2.16.1
 Pympler==1.0.1
+pypdf==3.16.0
 PyPika==0.48.9
 pyreadline3==3.4.1
 python-dateutil==2.8.2
